@@ -1,0 +1,81 @@
+# 全部可配置项的示例（DSH profile 层不必写；直接改名成 cordis.patch.yml 用）。
+#
+# 合并语义：深合并。只写你要改的键，没写的用 src/config.js 的 DEFAULTS。
+# 注意：**profile 层（~/.dsh/profiles/<name>/cordis.patch.yml）里如果也写
+# `- id: qq`，会整块替换这里，而不是深合并**——个人值请写在插件自带的这个文件里。
+- insert:
+    - id: qq
+      name: dsh-qq
+      config:
+        # ── NapCat 连接 ─────────────────────────────────────────────
+        # NapCat 的 HTTP 地址；入站上报要指向 listenPort。
+        napcatUrl: 'http://127.0.0.1:3000'
+        listenPort: 6721
+        # 入站令牌：非空时 NapCat 的 post_url 要写成 http://127.0.0.1:6721/<token>
+        ingressToken: ''
+        # NapCat 的 access_token（没设就留空）
+        accessToken: ''
+
+        # ── 谁能用 ───────────────────────────────────────────────
+        # 白名单：私人聊天只理这些号，其他人静默丢弃。空 = 谁都不理。
+        allowUins: []
+
+        # ── 会话 ─────────────────────────────────────────────────
+        # 总机开在 workspacesRoot/<switchboardDir>；留空 = ~/AGENTS
+        workspacesRoot: '~/AGENTS'
+        switchboardDir: 'Switchboard'
+        # 单条消息上限，超了按行分段发
+        maxChars: 600
+
+        # ── 语音转写（可选）─────────────────────────────────────
+        # 需要装了 faster-whisper 的解释器；留空用 PATH 里的 python
+        pythonPath: 'python'
+        sttModel: 'small'
+
+        # ── 桌面待办（/日程、/待办）──────────────────────────────
+        # 桌面待办小窗的数据目录（todos.txt / classes.txt / events.txt / cfg.txt）；
+        # 留空 = 两个命令不启用。桥只读不写。
+        todoAppDir: ''
+        # /日程 默认看几天（含今天）
+        scheduleDays: 7
+
+        # ── 运行期 ───────────────────────────────────────────────
+        dataDir: '~/.dsh/qq'          # state.json / bind.log / bridge.log
+        logLevel: 'info'              # debug / info / warn / error
+        approvalViaQq: true           # 审批能不能在 QQ 上答
+        intakeImages: true            # 收图（关掉可以少一份取图风险）
+        # 从 QQ 来的消息附一句"他没法直接操作这台电脑"
+        remoteHint: true
+        remoteHintEveryMs: 3600000
+
+        # ── 群聊（默认关闭）─────────────────────────────────────
+        group:
+          enabled: false
+          allowGroups: []
+          # 回答用的模型：cloud:<name> 走云端，否则按 baseUrl 调本地
+          baseUrl: 'http://127.0.0.1:1234/v1'
+          model: 'cloud:deepseek-flash'
+          requireMention: true        # true = 只有 @ 或唤醒词才答
+          wakeWords: []
+          maxPerMinute: 3
+          maxChars: 220
+          history: 8
+          summaryEvery: 6
+          temperature: 0.6
+          maxTokens: 220
+          # 表情包：文件名当表情名；/导入表情 从 inbox 入库
+          stickersEnabled: true
+          stickersDir: '~/.dsh/qq/stickers'
+          stickersInbox: '~/.dsh/qq/stickers-inbox'
+          persona: |
+            （这里写群里的说话风格。）
+          facts: []
+          cloud:
+            enabled: true
+            baseUrl: 'https://api.deepseek.com/v1'
+            # 云端 key 文件；留空用 ~/.dsh/.credentials.yaml
+            keyFile: ''
+            models: ['deepseek-flash', 'deepseek-v4-pro']
+            maxTokens: 600
+            timeoutMs: 60000
+            disableThinking: true
