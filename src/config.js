@@ -25,11 +25,6 @@ export const DEFAULTS = {
   maxChars: 600,
   workspacesRoot: path.join(os.homedir(), 'AGENTS'),
   switchboardDir: 'Switchboard',
-  // 桌面待办小窗的数据目录（todos.txt / classes.txt / events.txt / cfg.txt）。
-  // 空 = /日程、/待办 不启用。桥只读它，不写：改数据走小窗或 py todo.py。
-  todoAppDir: '',
-  // /日程 默认看几天（从今天算，含今天）。
-  scheduleDays: 7,
   pythonPath: 'python',
   sttScript: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'stt.py'),
   sttModel: 'small',

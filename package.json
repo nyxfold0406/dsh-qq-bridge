@@ -1,20 +1,8 @@
 {
-  "name": "dsh-qq",
-  "version": "1.1.1",
+  "name": "@nyxfold/dsh-qq-bridge",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Drive a DeepSeek Harness session from QQ: a OneBot v11 bridge to NapCat with bridge-side control words (/任务 /日程 /待办 /多条开始…/结束), a multi-message batch mode, file sending and progress push. Ships the desktop todo mini app.",
-  "license": "MIT",
-  "author": "Vesperviod",
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "deepseek-harness",
-    "cordis-plugin",
-    "qq",
-    "onebot",
-    "napcat",
-    "todo"
-  ],
+  "description": "QQ 桥：把 QQ 私聊接到 DeepSeek Harness 会话上（OneBot v11 / NapCat）。零 npm 依赖。",
   "exports": {
     ".": "./index.js"
   },
@@ -25,19 +13,34 @@
     "cordis.patch.example.yml",
     "tools/stt.py",
     "scripts/**/*.mjs",
-    "docs/**",
-    "!docs/PUBLISH.md",
-    "todo-app/**",
-    "LICENSE",
-    "README.md"
+    "docs/*.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "smoke": "node scripts/smoke.mjs",
-    "check": "node --check index.js && node --check src/activity.js && node --check src/bridge.js && node --check src/command.js && node --check src/config.js && node --check src/group.js && node --check src/http.js && node --check src/inbound.js && node --check src/log.js && node --check src/media.js && node --check src/model.js && node --check src/napcat.js && node --check src/prompts.js && node --check src/replies.js && node --check src/schedule.js && node --check src/session.js && node --check src/state.js && node --check src/text.js && node --check src/tools.js && node --check src/util.js"
+    "check": "node --check index.js && node --check src/activity.js && node --check src/bridge.js && node --check src/command.js && node --check src/config.js && node --check src/group.js && node --check src/http.js && node --check src/inbound.js && node --check src/log.js && node --check src/media.js && node --check src/model.js && node --check src/napcat.js && node --check src/prompts.js && node --check src/replies.js && node --check src/selfsent.js && node --check src/session.js && node --check src/state.js && node --check src/text.js && node --check src/tools.js && node --check src/util.js"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "license": "MIT",
+  "author": "nyxfold",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "onebot",
+    "chat-bridge",
+    "napcat",
+    "automation"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

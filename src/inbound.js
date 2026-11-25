@@ -7,7 +7,7 @@
 //   语音/聊天记录 → 先转成文字
 //   图片 → 变成 content part 跟着走
 //   审批/提问 → 回填，不进会话
-//   控制词（/任务 /日程 /待办 /多条开始 /结束 /模型 /群模型 /导入表情 挂了 我在电脑前了）→ 桥自己答
+//   控制词（/状态 /任务 /日程 /待办 /插队 /排队 /多条开始 /多条结束 /模型 /群模型 /导入表情 挂了 我在电脑前了）→ 桥自己答
 //   其余 → 投给绑定的会话
 import http from 'node:http'
 
@@ -21,6 +21,7 @@ export function createInbound(deps) {
     log,
     state,
     sendText,
+    saveState,
     parseAnswer,
     messageText,
     recordError,
@@ -37,11 +38,13 @@ export function createInbound(deps) {
     transcribeVoice,
     expandForward,
     activitySnapshot,
-    scheduleSnapshot,
-    todoSnapshot,
     modelCommandReply,
     prompts,
     expectReply,
+    statusPayload,
+    statusText,
+    sessionRows,
+    emitCommand,
   } = deps
 
   // 入站自己的可变状态：HTTP 监听句柄，以及「批量收图」模式。
@@ -59,7 +62,7 @@ export function createInbound(deps) {
     const when = mins > 0 ? `${mins} 分钟前` : '刚刚'
     return (
       `正在收多条：${messageBatch.items.length} 条字${imgs}（起于${when}）。\n` +
-      '发 /结束 一起发出去；/多条取消 丢掉。'
+      '发 /多条结束 一起发出去；/多条取消 丢掉。'
     )
   }
 
@@ -273,6 +276,38 @@ export function createInbound(deps) {
       prompts.settleQuestion(text)
       return
     }
+    // /会话：列可接的会话（已归档的不算，编号和 qq_list_sessions / 「接 N」一致）。
+    const sessionsCommand = /^[/／]?(会话|会话列表|sessions?)$/i.exec(text.trim())
+    if (sessionsCommand) {
+      try {
+        const { rows, hiddenNoise } = await sessionRows(false)
+        const lines = rows.map((s, i) => {
+          const marks = []
+          if (s.bound) marks.push('← 当前绑定')
+          if (s.running) marks.push('[运行中]')
+          const tail = marks.length ? '  ' + marks.join(' ') : ''
+          return `${i + 1}. ${s.title || s.short}${tail}\n   ${s.cwd || ''} · ${s.short}`
+        })
+        const foot = hiddenNoise > 0 ? `\n\n（另有 ${hiddenNoise} 条内部会话已折叠）` : ''
+        await sendText(uin, lines.length ? lines.join('\n') + foot : '没有可用的会话。')
+      } catch (error) {
+        await recordError('sessions.command', error)
+        sendText(uin, '会话列表没读出来，等下再试。').catch(() => {})
+      }
+      return
+    }
+    // /状态：桥自己的体检，和 qq_status 工具同一份数据（含在不在电脑前、
+    // 忙时插队还是排队）。放最前面，别的命令没拦住时才轮到它。
+    const statusCommand = /^[/／]?(状态|status|桥状态)$/i.exec(text.trim())
+    if (statusCommand) {
+      try {
+        await sendText(uin, statusText(await statusPayload()))
+      } catch (error) {
+        await recordError('status.command', error)
+        sendText(uin, '状态没读出来，等下再试。').catch(() => {})
+      }
+      return
+    }
     // "在看什么" is answered by the bridge itself: asking what every session is
     // doing must not queue behind whichever turn is currently running.
     const activityCommand =
@@ -288,47 +323,47 @@ export function createInbound(deps) {
       }
       return
     }
-    // /日程 和 /待办 也由桥自己答：数据就在桌面待办小窗的纯文本里，读一遍比
-    // 叫醒一个会话快得多，也不会排在哪个正在跑的回合后面。
-    // 必须整条匹配（后面只允许一个可选参数），否则"今天日程怎么安排"会被吃掉。
-    // 别名只留不会被日常说话撞上的：不认单独的"安排"。
-    const scheduleCommand =
-      /^[/／]?(?:日程|课表|schedule)(?:\s+([\s\S]{1,12}))?$/i.exec(text.trim())
-    if (scheduleCommand) {
-      try {
-        await sendText(uin, await scheduleSnapshot(scheduleCommand[1] || ''))
-      } catch (error) {
-        await recordError('schedule', error)
-        sendText(uin, '日程没读出来，等下再试。').catch(() => {})
-      }
+    // /日程 和 /待办 已拆成独立插件 @nyxfold/dsh-qq-schedule：桥只把没认出来的
+    // /命令 广播给扩展（见下方扩展点），装没装那个包都不影响这里。
+    // ── busy 时的默认投递方式：/插队 让新消息直接打断当前回合塞给模型，
+    // /排队 让它等这轮结束。挂在 state.json 里，重启也记得。
+    const busyModeHead = /^[/／]?(插队|排队)$/u.exec(text.trim())
+    if (busyModeHead) {
+      const mode = busyModeHead[1] === '插队' ? 'steer' : 'queue'
+      state.busyMode = mode
+      saveState?.({ busyMode: mode }).catch(() => {})
+      await sendText(
+        uin,
+        mode === 'steer'
+          ? '好：会话在跑的时候，新消息直接插给模型（打断当前这轮）。发 /排队 改回来。'
+          : '好：会话在跑的时候，新消息排队，等这轮跑完再投。发 /插队 改成直接插。',
+      )
       return
     }
-    const todoCommand = /^[/／]?(?:待办|清单|todo|todos)(?:\s+([\s\S]{1,12}))?$/i.exec(text.trim())
-    if (todoCommand) {
-      try {
-        await sendText(uin, await todoSnapshot(todoCommand[1] || ''))
-      } catch (error) {
-        await recordError('todo', error)
-        sendText(uin, '待办没读出来，等下再试。').catch(() => {})
-      }
-      return
-    }
-    // ── 多条模式（只私聊）：/多条开始 之后一路攒着，/结束 时合成一发。
+    // ── 多条模式（只私聊）：/多条开始 之后一路攒着，/多条结束 时合成一发。
     // 攒的时候一句都不回，要的就是安静；桥自己的控制词（/任务 /日程…）照旧能用，
-    // 它们在上面已经拦掉了。攒太多会自己先发出去，免得忘了 /结束 一直憋着。
+    // 它们在上面已经拦掉了。攒太多会自己先发出去，免得忘了 /多条结束 一直憋着。
     const batchHead = /^[/／]?(?:多条|连发|批量消息)([\s\S]*)$/i.exec(text.trim())
     if (batchHead) {
       const sub = batchHead[1].trim()
       if (/^(开始|开|start|on)$/i.test(sub)) {
         if (messageBatch) {
-          await sendText(uin, `已经在收了（${messageBatch.items.length} 条）。发 /结束 一起发出去。`)
+          await sendText(uin, `已经在收了（${messageBatch.items.length} 条）。发 /多条结束 一起发出去。`)
         } else {
           messageBatch = { uin, items: [], parts: [], startedAt: Date.now() }
           await sendText(
             uin,
-            '开始收多条：随便发，我一条都不回；发完发 /结束，我合成一发投过去。',
+            '开始收多条：随便发，我一条都不回；发完发 /多条结束，我合成一发投过去。',
           )
         }
+        return
+      }
+      if (/^(结束|收尾|done|end|flush)$/i.test(sub)) {
+        if (!messageBatch) {
+          await sendText(uin, '现在没在收多条。发 /多条开始 开始。')
+          return
+        }
+        await flushBatch(uin)
         return
       }
       if (/^(取消|清空|cancel|off|停|停止)$/i.test(sub)) {
@@ -343,8 +378,8 @@ export function createInbound(deps) {
       await sendText(uin, batchStatus())
       return
     }
-    // /结束 收尾。带斜杠一律当「结束多条」（没在收就回一句说明）；
-    // 裸的「结束」在没收多条时仍然是老的挂断词，行为不变。
+    // /结束 兼容保留：带斜杠当「结束多条」，裸的「结束」在没收多条时仍是挂断词。
+    // 新写法是 /多条结束（上面的 batchHead 分支）。
     const endBatch = /^([/／]?)结束$/.exec(text.trim())
     if (endBatch && (messageBatch || endBatch[1])) {
       if (!messageBatch) {
@@ -454,11 +489,16 @@ export function createInbound(deps) {
       return
     }
     // Coming back to the desk mid-chat: correct the "can't operate the PC"
-    // assumption before it makes the session keep asking.
+    // assumption before it makes the session keep asking. It also flips the
+    // persistent atDesk flag, so the next QQ message does not re-apply the
+    // "sender is on a phone" hint — that flag is what makes 挂了 harmless:
+    // the switchboard still knows he is sitting at the machine.
     const AT_DESK_RE =
-      /^(我在电脑前了?|我到电脑前了|回到电脑前了|我在桌前了?|我在电脑边了?)[。.!！\s]*$/u
+      /^(我在电脑前了?|我到电脑前了|回到电脑前了|我在桌前了?|我在电脑边了?|我回来了?|我回来啦|我到电脑了?|我在了|人在电脑前|在电脑前了?|能用电脑了?)[。.!！\s]*$/u
     if (AT_DESK_RE.test(text.trim())) {
       try {
+        state.atDesk = true
+        saveState?.({ atDesk: true }).catch(() => {})
         await promptSession('（更正）我现在就在电脑前，可以直接让我点确认、看屏幕、审批。', {
           remoteHint: false,
         })
@@ -466,6 +506,16 @@ export function createInbound(deps) {
       } catch (error) {
         await recordError('presence.at-desk', error)
       }
+      return
+    }
+    // The other direction: he is away from the machine again, so stop
+    // assuming someone can click on this screen.
+    const AWAY_RE =
+      /^(我不在电脑前了?|我在手机上了?|我现在在手机上|我出门了|我出去了|我在外面|回宿舍了|用手机就行)[。.!！\s]*$/u
+    if (AWAY_RE.test(text.trim())) {
+      state.atDesk = false
+      saveState?.({ atDesk: false }).catch(() => {})
+      sendText(uin, '好，那按你在手机上算。').catch(() => {})
       return
     }
     // "挂了" is a control instruction, not conversation. Handle it in the
@@ -491,6 +541,24 @@ export function createInbound(deps) {
       const total = messageBatch.items.length + messageBatch.parts.length
       if (total >= 40 || chars >= 20_000) await flushBatch(uin, '攒到上限了')
       return
+    }
+    // 扩展命令：内置命令都没认出来的 /xxx，广播给装了扩展插件的桥（例如
+    // @nyxfold/dsh-qq-schedule 接管 /日程 /待办）。没人接管就按普通消息投给会话，
+    // 和以前一样——扩展是纯增量，拆掉它也坏不了主路径。
+    const slash = text.trim()
+    if (/^[/／]/.test(slash)) {
+      const payload = {
+        text: slash,
+        uin,
+        reply: (chunk) => sendText(uin, chunk),
+        handled: false,
+      }
+      try {
+        emitCommand?.(payload)
+      } catch (error) {
+        await recordError('command.extension', error)
+      }
+      if (payload.handled) return
     }
     try {
       const steer = /^(挂断|挂了|拜拜|再见|没事了|先这样|就这样|收工|下了|结束|退下|不聊了)/.test(

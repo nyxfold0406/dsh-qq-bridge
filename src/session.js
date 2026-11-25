@@ -5,7 +5,7 @@
 //
 // 「接线」的含义：state.sessionId 指向哪个会话，QQ 来的消息就投给哪个。
 // 空 = 没接线；投递前会先确认那个会话还活着（未被归档/删除），否则回落到总机。
-import { mkdir, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -126,8 +126,11 @@ export function createSession({
       sendText(state.ownerUin, '收到，这边手头那轮还没跑完，消息排着了，跑完就回你。').catch(() => {})
     }
     // Hangup-style instructions jump the queue: waiting behind a long turn
-    // would make them useless.
-    const mode = busy && options.steer === true ? 'steer' : 'queue'
+    // would make them useless. Everything else follows the /插队 /排队 switch
+    // (state.busyMode), so the owner picks what the next message does while a
+    // turn is still running.
+    const steerWanted = options.steer === true || state.busyMode === 'steer'
+    const mode = busy && steerWanted ? 'steer' : 'queue'
     const controller = new AbortController()
     // Text and images ride in one prompt: DSH accepts image parts with base64
     // data, so a photo from the phone reaches the session as a real image.
@@ -141,6 +144,8 @@ export function createSession({
     const hintDue =
       cfg.remoteHint !== false &&
       options.remoteHint !== false &&
+      // 他已经说过自己在电脑前：别再把「你在手机上」那套推给他。
+      state.atDesk !== true &&
       (String(sid) !== remoteHintSession || hintNow - remoteHintAt > hintEvery)
     if (hintDue) {
       content.push({
@@ -223,7 +228,12 @@ export function createSession({
       const parsed = JSON.parse(raw)
       const ids = parsed?.global?.archivedSessionIds
       return new Set(Array.isArray(ids) ? ids.map(String) : [])
-    } catch {
+    } catch (error) {
+      // Silent here once hid a missing import for a fortnight: the list then
+      // showed every archived session. Say it out loud instead of guessing.
+      log.warn?.(
+        `bridge: couldn't read archived session ids: ${error instanceof Error ? error.message : String(error)}`,
+      )
       return new Set()
     }
   }

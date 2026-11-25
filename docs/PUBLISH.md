@@ -1,96 +1,74 @@
-# 发布说明 · 1.1.1
+# 发布页文案（可直接粘贴）
 
-包名：**`@nyxfold/dsh-qq-bridge`**（npm scope `nyxfold`）
-产物：`dist/nyxfold-dsh-qq-bridge-1.1.1.tgz`
+## 标题
 
-## 版本线
+**dsh-qq-bridge — 把 私聊接到 DeepSeek Harness 会话上（约 4 千行，零 npm 依赖）**
 
-| 版本 | 加了什么 |
-|---|---|
-| 1.0.7 | 已发布：QQ ↔ DSH 会话的管子（接线、审批转发、群聊、`/任务`） |
-| **1.1.0** | `/日程`、`/待办` 两个不占会话的控制词；桌面待办小窗 `todo-app/` 一起进包 |
-| **1.1.1** | `/多条开始` … `/结束` 多条模式（连着发的几条合成一条投给会话） |
+## 一句话
 
-没发过 2.0.0——这两个功能都不是破坏性改动，按小版本走。
+在一个会话里敲 `/qq bind`，之后手机 聊天里说一句，那台电脑上的会话就替你把活干了；
+回答分段发回聊天，需要你点头的动作也能在 聊天里回「允许」。
 
-## 1.1.1 是什么
+## 正文
 
-在 1.1.0 的基础上加了**多条模式**：私聊里把连着发的几条先攒着，`/结束` 时合成**一条**
-投给会话。手机上一句话说不完、要分几条打完的时候用，省的是来回几轮的开销。
+这个东西只做一件事：**当一根管子**。
 
-| 新增 | 说明 |
-|---|---|
-| `/多条开始` … `/结束` | 攒着不投，`/结束` 合成一条发过去（`/多条` 看进度、`/多条取消` 丢掉）。攒的时候一句都不回；超过 40 条或 2 万字自己先发出去 |
-| `/日程` | 最近一周的安排：课表（按周次/单双周过滤）+ 一次性事务 + 当天截止的待办。`/日程 明天`、`/日程 3`、`/日程 本周`、`/日程 下周` |
-| `/待办` | 未完成清单，按截止时间 → 紧要程度排，过期的标出来。`/待办 全部` 连已完成的一起列 |
-| `todo-app/` | 桌面待办小窗（WinForms 单 exe + 纯文本数据 + `py todo.py` 命令行），不装 DSH 也能单独跑 |
-| `src/schedule.js` | `/日程` `/待办` 的实现：**只读**那四份文本，没有缓存，被问才读 |
-| 中性配置 | `cordis.patch.yml` 现在是中性默认值（`allowUins: []`、群聊关闭）；个人的值写本机那份，不进包 |
+- **薄**：18 个模块、约 4 千行，`src/bridge.js` 只剩 374 行装配代码。没有旁挂服务、没有进程间协议。
+- **零依赖**：不装 npm 包、不要第三方运行时，`git clone` + 改一个 yml + 重启就能跑。
+- **不碰账号内容**：不替你看视频、评论、发动态，风险面小。
+- **群聊不污染会话**：群里说话不建会话、不给工具，直接调一次模型答，便宜。
+- **自带回归**：`node scripts/smoke.mjs` 会本地伪造一个 NapCat，把「收消息 → 投递 → 回话」
+  整条链跑一遍，不需要真号就能验证改动没把桥弄断。
+- **免 UAC**：附 `scripts/windows-run-at-logon.ps1`，把需要管理员的启动命令挂成
+  「最高权限 + 登录触发」的计划任务，开机自动跑且不再弹窗。
 
-控制词都由桥自己答，不唤醒会话：手机上问一句就有答案，不排队、不花上下文。
-多条模式的作用相反——把几条**合成一条**再进会话，省的是来回几轮。
+## 取向：一根管子，不是一个角色
 
-## 发布页文案
+同类方案里有人把桌面分身、长期记忆、B站联动、语音都做进去了，那是另一条路，
+功能面远超本项目。本项目的取舍是窄而薄：
 
-### 标题
+- **定位**：只做 QQ ↔ DSH 会话的通道，不接管角色、记忆、内容运营。
+- **群聊**：不建会话，直接调一次模型答，省上下文。
+- **依赖**：零 npm 依赖，代码量约 4 千行，一个人一晚上能读完。
+- **自带离线回归**：不用真号就能验证改动没把桥弄断。
 
-**QQ 桥 · 把手机 QQ 接到 DeepSeek Harness 的会话上（约 4.9 千行，零 npm 依赖，带一个桌面待办小窗）**
+要养一个长期存在的她，用那类整套方案；要一根干净、能读能改的管子，用这个。
 
-### 一句话
+## 安装（三步）
 
-在一个会话里敲 `/qq bind`，之后手机 QQ 里说一句，那台电脑上的会话就替你把活干了；
-回答分段发回聊天，需要你点头的动作也能在 QQ 里回「允许」，问 `/日程` `/待办` 还能直接看到今天到下周的安排。
-
-### 正文要点
-
-- **薄**：19 个模块、约 4900 行，`src/bridge.js` 只剩 390 行装配。没有旁挂服务、没有进程间协议。
-- **零依赖**：不装 npm 包、不要第三方运行时；改一个 yml + 重启就能跑。
-- **控制词不占会话**：`/任务`（会话在干什么）、`/日程`、`/待办`、`/模型 N`、`挂了` 都由桥自己答。
-- **群聊不污染会话**：群里说话不建会话、不给工具，直接调一次模型答，带限流。
-- **附带一个小程序**：`todo-app/` 是独立 exe（WinForms，单文件），数据是纯文本，
-  `/日程` `/待办` 就是读它；不装 DSH 也能单独用。
-- **自带回归**：`node scripts/smoke.mjs` 本地伪造一个 NapCat，把「收消息 → 路由 → 投递 → 回话」
-  和 `/日程` `/待办` 的自答路径一起跑一遍，不需要真号。
-
-### 合规与边界
-
-- 只认白名单里的号，其他人静默丢弃；不代登录、不绕过风控、不转发凭据类文件
-- 与腾讯 / QQ / DeepSeek 官方无关；使用前请自行确认 QQ 服务条款，风险自负
-- MIT
-
-## 怎么发
-
-```bash
-# 1) 打发布包（本机没有独立 npm，用 DSH 自带的 pnpm）
-cd <插件目录>
-DSH_PNPM_PATH="C:/Users/QSL/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/pnpm/bin/pnpm.mjs" \
-  node scripts/pack-release.mjs
-
-# 2) 确认登录的是 nyxfold
-<pnpm> whoami
-
-# 3) 发（从暂存目录发，别从本目录发：本地 link 名是 dsh-qq，发布名是 @nyxfold/dsh-qq-bridge）
-node scripts/pack-release.mjs --publish
+```powershell
+git clone https://github.com/<you>/dsh-qq-bridge.git C:\Users\you\plugins\dsh-qq-bridge
+# profile package.json：dsh-qq-bridge → link:...；bundles 里加 dsh-qq-bridge
+copy cordis.patch.example.yml cordis.patch.yml   # 填 allowUins
+# 重启 DSH；NapCat 的 post_url 指向 http://127.0.0.1:6721/
 ```
 
-**不要**直接在本目录 `pnpm publish`：本机 profile 用短名 `dsh-qq` link，
-改了 `package.json` 的 name 就得重新 `pnpm install` 才不影响重启加载。
-`scripts/pack-release.mjs` 只在 `dist/stage/` 里换名字。
+## 合规与边界
 
-## 发布前检查清单
+- 只认白名单里的号，其他人静默丢弃
+- 不代登录、不绕过风控、不转发凭据类文件
+- 与腾讯 / QQ / DeepSeek 官方无关；使用前请自行确认 QQ 服务条款，风险自负
+- MIT 许可
 
-- [x] 包里没有本机 QQ 号 / 群号 / 个人课表 / 窗口状态（`cordis.patch.yml` 已换成中性默认值）
-- [x] 没有本机绝对路径；文档里的路径都是通用示例
+---
+
+# 发布前检查清单
+
+- [x] 代码里没有本机绝对路径（`DEFAULTS` 全部改成 `os.homedir()` 派生或 `python`）
+- [x] 没有 号码 / 群号 / 群友名单 / 歌单 / 电台名
+- [x] `cordis.patch.yml` 是中性默认值（`allowUins: []`、群聊关闭）
 - [x] `cordis.patch.example.yml` 带注释、含全部可配置项
-- [x] LICENSE（MIT）、README 面向外部用户
-- [x] `node scripts/smoke.mjs` 全绿（本目录 + 解包后的目录都跑过）
-- [x] 登录 npm（nyxfold，2FA 已开；granular token 只能暂存，批准要在网页/带 OTP 做）
-- [x] 已发布 2026-11-20 11:53（stage id a4604ce4），线上 latest = 1.1.1，线上包 sha1 与本地一致
+- [x] README 面向外部用户（不是写给自家人看的）
+- [x] LICENSE（MIT）
+- [x] `.gitignore` 排除 `state/`、`*.key`、`*.log`
+- [x] `node scripts/smoke.mjs` 在没有真号的情况下全绿
+- [ ] 在干净机器上按 README 走一遍（未做）
+- [ ] 决定仓库名与所有者（未定）
 
-## 发布后要盯的事
+# 发布后要盯的事
 
-1. **DSH 升级会漂**：插件吃 `sessionController` / `tools` / `commands` / `workspaceRegistry`
-   这些宿主接口，升级后先跑 `node scripts/smoke.mjs`，它会立刻报哪块对不上。
-2. **NapCat 的 post_url 是最常见的装不起来原因**：README 里要放在显眼位置。
-3. **别把 `cordis.patch.yml` 当地址簿**：用户会把自己的号写进去，然后想发出来问问题。
-4. **`todoAppDir` 是可选项**：没配就只是 `/日程` `/待办` 回一句「没配目录」，不影响别的功能。
+1. **DSH 升级会漂**：本插件吃 `sessionController` / `tools` / `commands` / `workspaceRegistry`
+   这些宿主接口。升级后先跑 `node scripts/smoke.mjs`，它会立刻报哪块对不上。
+2. **NapCat 的 post_url 是最常见的装不起来原因**：README 里要放在最显眼的位置。
+3. **别把 `cordis.patch.yml` 当地址簿**：用户会把自己的 号码写进去，然后想发出来问问题。
+   `.gitignore` 里已经排了 `cordis.patch.local.yml`，但主文件还是别提交个人版本。

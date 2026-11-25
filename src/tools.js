@@ -90,6 +90,10 @@ export function createTools(deps) {
     saveState,
     recordError,
     DEFAULTS,
+    markSelfSent,
+    isQqTurn,
+    statusPayload,
+    statusText,
   } = deps
 
   /** 注册包装：先校验参数，再交给宿主。 */
@@ -97,45 +101,10 @@ export function createTools(deps) {
 
   const text = (value) => [{ type: 'text', text: value }]
 
-  ctx.effect(
-    () =>
-      reg({
-        name: 'qq_send_message',
-        description:
-          'Send a short note to the owner\'s QQ private chat (progress reports, "done", "starting now"). ' +
-          '给主人的 QQ 私聊推一段话：汇报进度、报告完成、说一声开始干活。' +
-          'Keep it under a few hundred characters; long text is split automatically. ' +
-          'This does not end the turn — you can keep working afterwards.',
-        parameters: {
-          type: 'object',
-          properties: {
-            text: { type: 'string', description: '要发的内容（中文即可）。' },
-          },
-          required: ['text'],
-        },
-        output: {
-          schema: {
-            type: 'object',
-            properties: { ok: { type: 'boolean' }, chunks: { type: 'integer' }, to: { type: 'string' }, error: { type: 'string' } },
-            required: ['ok'],
-          },
-          render(_args, value) {
-            if (!value?.ok) return text(`没发出去：${value?.error || '未知原因'}`)
-            return text(`已发到 QQ ${value.to}（${value.chunks} 段）。`)
-          },
-        },
-        timeoutMs: 30_000,
-        isConcurrencySafe: () => true,
-        async execute(args, exec) {
-          if (!(await mayEmit(exec))) return { ok: false, error: EMIT_DENIED }
-          const target = String(getOwnerUin() || '').trim()
-          if (!target) return { ok: false, error: '还没有 QQ 号，先让对方发一条消息' }
-          const chunks = await sendText(target, args.text)
-          return { ok: true, chunks, to: target }
-        },
-      }),
-    'qq.tool.send_message',
-  )
+  // qq_send_message was removed 2026-11-25 (user decision): in a QQ-bound
+  // session the assistant text is mirrored back by src/replies.js anyway, so
+  // the only thing this tool could do was send the same words twice. Text goes
+  // through the reply; files go through qq_send_file.
 
   ctx.effect(
     () =>
@@ -210,6 +179,9 @@ export function createTools(deps) {
           if (!target) return { ok: false, error: '还没有 QQ 号，先让对方发一条消息' }
           try {
             const sent = await sendFile(target, args.file, args.name)
+            // A file does not stand in for the text: the turn-end mirror must
+            // still deliver whatever the model wrote (19:56 case: 「我批改过了，
+            // 发你 QQ 了」+ the file). So this one deliberately does NOT mark.
             return { ok: true, file: sent, to: target }
           } catch (error) {
             return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -239,33 +211,13 @@ export function createTools(deps) {
             required: ['ok'],
           },
           render(_args, value) {
-            return text(
-              `NapCat：${value.napcat}\n` +
-                `绑定会话：${value.sessionId || '（还没有）'}\n` +
-                `最近发消息的号：${value.ownerUin || '（还没有）'}\n` +
-                `白名单：${(value.allowed || []).join(', ') || '（空，谁都不能用）'}\n` +
-                `本机监听：${value.listening ? '在' : '没起来'}`,
-            )
+            return text(statusText(value))
           },
         },
         timeoutMs: 15_000,
         isConcurrencySafe: () => true,
         async execute() {
-          let napcat = '连不上'
-          try {
-            const info = await callApi('get_login_info', {})
-            napcat = info?.nickname ? `在线：${info.nickname}（${info.user_id}）` : '在线'
-          } catch (error) {
-            napcat = error instanceof Error ? error.message : String(error)
-          }
-          return {
-            ok: napcat.startsWith('在线'),
-            napcat,
-            sessionId: getSessionId() ?? '',
-            ownerUin: getOwnerUin(),
-            allowed: [...allowed],
-            listening: Boolean(isListening()),
-          }
+          return statusPayload()
         },
       }),
     'qq.tool.status',

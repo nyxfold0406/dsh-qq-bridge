@@ -6,7 +6,7 @@
 // 检查四件事：
 //   1. 每个模块都能被 import（语法 / 路径 / 循环依赖）
 //   2. apply() 能跑完，不抛异常（能抓出 TDZ、未定义变量这类只有运行时才炸的错）
-//   3. 九个 qq_* 工具、一个 /qq 命令都注册上了
+//   3. 八个 qq_* 工具、一个 /qq 命令都注册上了
 //   4. 入站监听真的能起来（POST 任何东西都该回 204）
 //
 // 它用临时目录和 6799 端口，不碰线上 state，也不连 NapCat。
@@ -233,64 +233,6 @@ for (const k of ['modelCommandReply', 'watchLocalContext', 'currentModelSelectio
 }
 if (!process.exitCode) console.log('✓ model 装配正常')
 
-// schedule：/日程 和 /待办 读的是桌面待办的纯文本（临时目录里造一份，不碰线上数据）
-{
-  const { createSchedule, addDays, ymd, weekOf } = await import('../src/schedule.js')
-  const todoDir = await mkdtemp(path.join(os.tmpdir(), 'qq-todo-'))
-  const today = new Date()
-  const semesterStart = ymd(addDays(today, -70)) // 今天落在第 11 周
-  const dow = today.getDay() === 0 ? 7 : today.getDay()
-  const week = weekOf(today, semesterStart)
-  const skipParity = week % 2 === 0 ? 1 : 2 // 「这一周不该上」的那种课
-  await writeFile(path.join(todoDir, 'cfg.txt'), `semesterstart=${semesterStart}\n`, 'utf8')
-  await writeFile(
-    path.join(todoDir, 'classes.txt'),
-    `${dow}\t08:30\t10:10\t测试课\n${dow}\t14:00\t15:40\t排掉这节课\t1\t99\t${skipParity}\n`,
-    'utf8',
-  )
-  await writeFile(
-    path.join(todoDir, 'events.txt'),
-    `${ymd(today)}\t13:00\t14:00\t会议\t评审会\t重要\n`,
-    'utf8',
-  )
-  await writeFile(
-    path.join(todoDir, 'todos.txt'),
-    [
-      `0\t${ymd(today)} 21:30\t\t\t今天截止的活`,
-      `0\t${ymd(addDays(today, -1))} 09:40\t30\tA\t昨天该交的材料`,
-      `0\t${ymd(addDays(today, 1))} 18:00\t\tB\t明天的活`,
-      `1\t${ymd(today)} 08:00\t\t\t干完了的活`,
-    ].join('\n') + '\n',
-    'utf8',
-  )
-  const sched = createSchedule({ cfg: { todoAppDir: todoDir, scheduleDays: 7 }, log: stubLog })
-  const board = await sched.scheduleSnapshot('')
-  if (!board.includes('测试课')) fail('日程没列出今天的课')
-  if (board.includes('排掉这节课')) fail('日程没有按单双周过滤')
-  if (!board.includes('评审会')) fail('日程没列出一次性事务')
-  if (!board.includes('今天截止的活')) fail('日程没把当天截止的待办挂上')
-  if (!board.includes('1 条已过期')) fail('日程没提示已过期的待办')
-  if (!board.includes('第 11 周')) fail('日程没按学期起算周次')
-  const todayOnly = await sched.scheduleSnapshot('今天')
-  if (todayOnly.includes('明天的活')) fail('日程 今天 不该列出明天的截止')
-  const list = await sched.todoSnapshot('')
-  if (!list.includes('昨天该交的材料')) fail('待办漏了过期条目')
-  if (!list.includes('过期')) fail('待办没标过期')
-  if (!list.includes('明天的活')) fail('待办漏了明天的条目')
-  if (list.includes('干完了的活')) fail('待办默认不该列已完成的')
-  const all = await sched.todoSnapshot('全部')
-  if (!all.includes('干完了的活')) fail('待办 全部 应包含已完成的')
-  const unset = createSchedule({ cfg: {}, log: stubLog })
-  const hint = await unset.todoSnapshot('')
-  if (!hint.includes('todoAppDir')) fail('没配 todoAppDir 时没给出提示')
-  try {
-    await rm(todoDir, { recursive: true, force: true })
-  } catch {
-    /* ignore */
-  }
-  if (!process.exitCode) console.log('✓ schedule /日程 /待办 快照正常')
-}
-
 try {
   apply(ctx, cfg)
 } catch (error) {
@@ -305,7 +247,6 @@ const expected = [
   'qq_hangup',
   'qq_list_sessions',
   'qq_send_file',
-  'qq_send_message',
   'qq_status',
   'qq_workspaces',
 ]
@@ -314,10 +255,10 @@ for (const n of missing) fail(`工具没注册：${n}`)
 if (!missing.length) console.log(`✓ 工具 ${tools.size} 个全部注册`)
 
 // 1b. 参数校验：宿主不校验 schema，工具层必须自己挡
-const sendMsg = tools.get('qq_send_message')
-if (!sendMsg) fail('拿不到 qq_send_message')
+const sendFile = tools.get('qq_send_file')
+if (!sendFile) fail('拿不到 qq_send_file')
 else {
-  const bad = await sendMsg.execute({ text: 123 }, { agent: { id: 'smoke-session' } })
+  const bad = await sendFile.execute({ file: 123 }, { agent: { id: 'smoke-session' } })
   if (bad?.ok !== false) fail('坏参数没有被挡住（应为 ok:false）')
   else console.log('✓ 坏参数被挡（ok:false，不抛异常）')
 }
@@ -422,94 +363,9 @@ await new Promise((r) => setTimeout(r, 800))
 if (promptCalls.length === before) console.log('✓ 白名单外的消息被丢弃（没进会话）')
 else fail('白名单外的消息居然进了会话')
 
-// 6b. /日程、/待办 必须由桥自己答：不唤醒会话，并且要真的回一句话。
-//     smoke 的配置里没有 todoAppDir，所以期望回的正是"没配目录"那句——路由对了
-//     才会出现这句；真被投进会话就什么都不会发。
-{
-  napcatCalls.length = 0
-  const before = promptCalls.length
-  for (const word of ['/日程', '/待办', '日程']) {
-    await fetch(`http://127.0.0.1:${PORT}/`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        post_type: 'message',
-        message_type: 'private',
-        sub_type: 'friend',
-        self_id: 999,
-        user_id: 10001,
-        raw_message: word,
-        message: [{ type: 'text', data: { text: word } }],
-        sender: { user_id: 10001, nickname: 'smoke' },
-      }),
-      signal: AbortSignal.timeout(3000),
-    }).catch((error) => fail(`${word} 投递失败：${error.message}`))
-  }
-  await new Promise((r) => setTimeout(r, 1200))
-  if (promptCalls.length !== before) fail('/日程 /待办 被投进了会话（应该桥自己答）')
-  const said = napcatCalls
-    .filter((call) => call.action === 'send_private_msg')
-    .map((call) => JSON.stringify(call.body))
-    .join('\n')
-  const replies = (said.match(/todoAppDir/g) || []).length
-  if (replies < 3) fail(`/日程 /待办 没各回一句（期望 3 条，实际 ${replies} 条）`)
-  else console.log('✓ /日程 /待办 由桥自己答（3 条都回了，没进会话）')
-}
 
 
-
-// 6c. 多条模式：/多条开始 之后只攒不投，/结束 时合成一发。
-//     攒的时候必须一句话都不说——要的就是安静，说一句就等于在打断他。
-{
-  const post = (word) =>
-    fetch(`http://127.0.0.1:${PORT}/`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        post_type: 'message',
-        message_type: 'private',
-        sub_type: 'friend',
-        self_id: 999,
-        user_id: 10001,
-        raw_message: word,
-        message: [{ type: 'text', data: { text: word } }],
-        sender: { user_id: 10001, nickname: 'smoke' },
-      }),
-      signal: AbortSignal.timeout(3000),
-    }).catch((error) => fail(`投递失败：${error.message}`))
-  const said = () =>
-    napcatCalls
-      .filter((call) => call.action === 'send_private_msg')
-      .map((call) => JSON.stringify(call.body))
-      .join('\n')
-
-  const before = promptCalls.length
-  napcatCalls.length = 0
-  await post('/多条开始')
-  await new Promise((r) => setTimeout(r, 500))
-  if (!said().includes('开始收多条')) fail('/多条开始 没有回执')
-  if (promptCalls.length !== before) fail('/多条开始 被投进了会话')
-  const afterStart = promptCalls.length
-
-  napcatCalls.length = 0
-  await post('第一件事：把表改完')
-  await post('第二件事：跑一下冒烟')
-  await new Promise((r) => setTimeout(r, 800))
-  if (promptCalls.length !== afterStart) fail('多条模式攒着的时候不该投递')
-  if (said().length > 0) fail('多条模式攒着的时候不该说话')
-
-  await post('/结束')
-  await new Promise((r) => setTimeout(r, 900))
-  const sent = promptCalls.length - afterStart
-  if (sent !== 1) fail(`/结束 应该只投一发（实际 ${sent}）`)
-  const body = (promptCalls[promptCalls.length - 1]?.content || [])
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('\n')
-  if (!body.includes('第一件事') || !body.includes('第二件事')) fail('/结束 合成的那一发缺内容')
-  else if (!said().includes('一起发过去')) fail('/结束 没有回执')
-  else console.log('✓ 多条模式：攒两发、/结束 合成一发')
-}
+// 7. 回复回路：模拟 DSH 抛出 session/event，看文本能不能一路回到 QQ。
 napcatCalls.length = 0
 const sessionHandlers = listeners.get('session/event') || []
 const smokeSession = { id: 'smoke-session' }

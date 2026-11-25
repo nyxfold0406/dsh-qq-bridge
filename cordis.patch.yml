@@ -1,34 +1,20 @@
-# Bundle layer: mount the QQ bridge (index.js).
+# Bundle layer: mount the QQ bridge (src/bridge.js) into DSH.
 #
-# Talks to a local NapCat (OneBot v11) over plain HTTP in both directions:
-#   outbound API -> config.napcatUrl (NapCat's HTTP server, default 127.0.0.1:3000)
-#   inbound events -> config.listenPort (this plugin's own loopback listener)
+# This is the shipped default: it starts the bridge with NOBODY allowed to talk
+# to it (allowUins is empty) and group chat off. Fill in your own values in the
+# DSH profile, or copy ../cordis.patch.example.yml over this file.
 #
-# Set the NapCat HTTP 上报地址 to http://127.0.0.1:<listenPort>/  (the same
-# port below) so private messages reach the bridge. Only allowUins may talk to
-# it; everyone else is ignored.
+#   outbound API  -> config.napcatUrl   (NapCat's HTTP server, default 127.0.0.1:3000)
+#   inbound events <- config.listenPort (this plugin's own loopback listener)
 #
-# 发布包里的这一份是**中性默认值**：装完先改 allowUins，否则桥谁也不理。
-# 全部可配置项（含群聊人设、表情库、本地模型）见 cordis.patch.example.yml。
-#
-# 注意 `name` 写的是 npm 上的发布名（@nyxfold/dsh-qq-bridge），不是本机 link 用的
-# 短名 dsh-qq：宿主按这里导入插件。scripts/pack-release.mjs 会把这份文件放进包里。
+# Set NapCat's HTTP 上报 (post_url) to http://127.0.0.1:<listenPort>/ so private
+# messages reach the bridge. Only allowUins may talk to it.
 - insert:
     - id: qq
       name: '@nyxfold/dsh-qq-bridge'
       config:
         napcatUrl: 'http://127.0.0.1:3000'
         listenPort: 6721
-        # 白名单：填你自己的 QQ 号。空 = 谁都不理（这是刻意的默认值）。
         allowUins: []
-        # 工作区根目录：留空则 ~/AGENTS（总机开在这里）。
-        # workspacesRoot: '~/AGENTS'
-        # 语音转文字用的解释器（装了 faster-whisper 的那个）；留空用 PATH 里的 python。
-        # pythonPath: 'python'
-        # 桌面待办小窗的数据目录；留空 = /日程 /待办 不启用。
-        todoAppDir: ''
-        scheduleDays: 7
-        # 群聊默认关闭：开着会按白名单进群答题（调一次模型，不建会话）。
         group:
           enabled: false
-          allowGroups: []

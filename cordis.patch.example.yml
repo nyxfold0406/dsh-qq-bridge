@@ -1,81 +1,68 @@
-# 全部可配置项的示例（DSH profile 层不必写；直接改名成 cordis.patch.yml 用）。
+# 完整配置示例 —— 复制成 cordis.patch.yml 再按自己情况改。
 #
-# 合并语义：深合并。只写你要改的键，没写的用 src/config.js 的 DEFAULTS。
-# 注意：**profile 层（~/.dsh/profiles/<name>/cordis.patch.yml）里如果也写
-# `- id: qq`，会整块替换这里，而不是深合并**——个人值请写在插件自带的这个文件里。
+# 只填自己用得上的；没写的键都会回落到 src/config.js 里的 DEFAULTS（深合并）。
+# 所有「你自己的东西」都只应该出现在这个文件里，不要写进代码。
+
 - insert:
     - id: qq
-      name: dsh-qq
+      name: '@nyxfold/dsh-qq-bridge'
       config:
-        # ── NapCat 连接 ─────────────────────────────────────────────
-        # NapCat 的 HTTP 地址；入站上报要指向 listenPort。
+        # ── NapCat（OneBot v11）───────────────────────────────────────────
         napcatUrl: 'http://127.0.0.1:3000'
+        # 本插件的入站端口；NapCat 的 HTTP 上报要指向 http://127.0.0.1:6721/
         listenPort: 6721
-        # 入站令牌：非空时 NapCat 的 post_url 要写成 http://127.0.0.1:6721/<token>
-        ingressToken: ''
-        # NapCat 的 access_token（没设就留空）
-        accessToken: ''
+        # 只有这些号码能跟桥说话。留空 = 谁都不理（不是全放行）。
+        allowUins:
+          - '1000000001'
+        # 入站令牌（强烈建议设置）：设了就要求 NapCat 的 post_url 写成
+        #   http://127.0.0.1:6721/<这个值>
+        # 防止本机别的程序、或浏览器里的网页冒充你往桥里塞消息。
+        # ingressToken: 'change-me-to-a-random-string'
 
-        # ── 谁能用 ───────────────────────────────────────────────
-        # 白名单：私人聊天只理这些号，其他人静默丢弃。空 = 谁都不理。
-        allowUins: []
+        # ── 数据与路径 ───────────────────────────────────────────────────
+        # state.json / bridge.log / 截图都放这里
+        dataDir: 'C:\Users\you\.dsh\qq'
+        # qq_workspaces / qq_call_workspace 扫描的根目录
+        # workspacesRoot: 'C:\Users\you\AGENTS'
+        # Lily 总机的工作目录名（放在 workspacesRoot 下）
+        # switchboardDir: 'Switchboard'
 
-        # ── 会话 ─────────────────────────────────────────────────
-        # 总机开在 workspacesRoot/<switchboardDir>；留空 = ~/AGENTS
-        workspacesRoot: '~/AGENTS'
-        switchboardDir: 'Switchboard'
-        # 单条消息上限，超了按行分段发
-        maxChars: 600
+        # ── 语音转文字（可选）───────────────────────────────────────────
+        # pythonPath: 'python'          # 装了 faster-whisper 的解释器
+        # sttScript: 'tools/stt.py'
+        # sttModel: 'small'
 
-        # ── 语音转写（可选）─────────────────────────────────────
-        # 需要装了 faster-whisper 的解释器；留空用 PATH 里的 python
-        pythonPath: 'python'
-        sttModel: 'small'
+        # ── 行为 ─────────────────────────────────────────────────────────
+        # maxChars: 600                 # 单条消息上限，超了自动分段（下限 200）
+        # intakeImages: true            # 收图给会话看
+        # remoteHint: true              # 每条消息前提醒「他在手机上」
+        # logLevel: 'info'              # debug / info / warn / error
 
-        # ── 桌面待办（/日程、/待办）──────────────────────────────
-        # 桌面待办小窗的数据目录（todos.txt / classes.txt / events.txt / cfg.txt）；
-        # 留空 = 两个命令不启用。桥只读不写。
-        todoAppDir: ''
-        # /日程 默认看几天（含今天）
-        scheduleDays: 7
-
-        # ── 运行期 ───────────────────────────────────────────────
-        dataDir: '~/.dsh/qq'          # state.json / bind.log / bridge.log
-        logLevel: 'info'              # debug / info / warn / error
-        approvalViaQq: true           # 审批能不能在 QQ 上答
-        intakeImages: true            # 收图（关掉可以少一份取图风险）
-        # 从 QQ 来的消息附一句"他没法直接操作这台电脑"
-        remoteHint: true
-        remoteHintEveryMs: 3600000
-
-        # ── 群聊（默认关闭）─────────────────────────────────────
+        # ── 群聊（可选）──────────────────────────────────────────────────
         group:
           enabled: false
-          allowGroups: []
-          # 回答用的模型：cloud:<name> 走云端，否则按 baseUrl 调本地
-          baseUrl: 'http://127.0.0.1:1234/v1'
+          allowGroups:
+            - '1000000002'
+          # 群里用哪个模型答：cloud:<名字> 走下面 cloud，普通名字走 baseUrl
           model: 'cloud:deepseek-flash'
-          requireMention: true        # true = 只有 @ 或唤醒词才答
+          # true = 只有 @ 或 wakeWords 才回；false = 每句都回（受限流）
+          requireMention: true
           wakeWords: []
-          maxPerMinute: 3
-          maxChars: 220
-          history: 8
-          summaryEvery: 6
-          temperature: 0.6
-          maxTokens: 220
-          # 表情包：文件名当表情名；/导入表情 从 inbox 入库
-          stickersEnabled: true
-          stickersDir: '~/.dsh/qq/stickers'
-          stickersInbox: '~/.dsh/qq/stickers-inbox'
-          persona: |
-            （这里写群里的说话风格。）
+          maxPerMinute: 4
+          maxChars: 160
+          history: 5
+          # 人设与事实：这里放你自己的，不要写别人的
+          systemPrompt: ''
+          persona: ''
           facts: []
+          # 表情库（可选）
+          # stickersDir: 'C:\Users\you\.dsh\qq\stickers'
+          # stickersInbox: 'C:\Users\you\.dsh\qq\stickers-inbox'
           cloud:
             enabled: true
             baseUrl: 'https://api.deepseek.com/v1'
-            # 云端 key 文件；留空用 ~/.dsh/.credentials.yaml
-            keyFile: ''
-            models: ['deepseek-flash', 'deepseek-v4-pro']
-            maxTokens: 600
-            timeoutMs: 60000
+            # 存 API Key 的文件路径（别把 key 写进这个 yml）
+            keyFile: 'C:\Users\you\.dsh\qq\deepseek.key'
+            models:
+              - 'deepseek-flash'
             disableThinking: true

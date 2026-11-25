@@ -12,10 +12,11 @@
 // talk to it — anyone else is dropped silently.
 //
 // Agent tools registered here:
-//   qq_send_message  push a short note to the chat (progress reports)
 //   qq_send_file     send one local file (the file stays on this computer)
 //   qq_status        report bridge health for debugging
 //   qq_activity      what every session is doing right now (same as /任务 on QQ)
+// Text is NOT a tool any more: a QQ-bound turn mirrors its reply back on its
+// own, so a send-text tool only produced duplicates (removed 2026-11-25).
 //
 // Chat-side control words, answered by the bridge without waking a session:
 // /任务 (or /进度, /jobs) — per-session snapshot: running turns, background
@@ -35,10 +36,10 @@ import { createNapcat } from './napcat.js'
 import { createMedia } from './media.js'
 import { createGroup } from './group.js'
 import { createActivity } from './activity.js'
-import { createSchedule } from './schedule.js'
 import { createPrompts } from './prompts.js'
 import { createTools } from './tools.js'
 import { createReplies } from './replies.js'
+import { createSelfSent } from './selfsent.js'
 import { createCommand } from './command.js'
 import { createModelPicker } from './model.js'
 import { createStateStore } from './state.js'
@@ -73,6 +74,13 @@ export function apply(ctx, config) {
   let sessionId
   let lilySessionId
   let ownerUin = ''
+  // 「人现在在不在电脑前」：true = 他能点确认/看屏幕，会话别再按"他在手机上"来
+  // 安排步骤；false = 按 QQ 那头的人处理。由 inbound 的说法和 QQ 消息共同维护，
+  // 存进 state.json，换绑定/重启都不丢。
+  let atDesk = false
+  // busy 时候新来的 QQ 消息默认怎么处理：'queue' 等这轮跑完 / 'steer' 直接插给模型。
+  // /插队 /排队 切换，存在 state.json。
+  let busyMode = 'queue'
   // 最近一次成功发送：掉线时写进错误里，方便判断是不是长消息把它弄死的。
   let lastSend = null
   // 批量收图模式：开着的时候图片只进 inbox，不进会话、不逐张回复。
@@ -101,6 +109,18 @@ export function apply(ctx, config) {
     },
     set ownerUin(value) {
       ownerUin = value
+    },
+    get atDesk() {
+      return atDesk
+    },
+    set atDesk(value) {
+      atDesk = Boolean(value)
+    },
+    get busyMode() {
+      return busyMode
+    },
+    set busyMode(value) {
+      busyMode = value === 'steer' ? 'steer' : 'queue'
     },
   }
 
@@ -233,9 +253,9 @@ export function apply(ctx, config) {
   // ------------------------------- activity（src/activity.js）---
   const { activitySnapshot } = createActivity({ ctx, sessionRows })
 
-  // -------------------------- 日程/待办（src/schedule.js）---
-  // 读桌面待办小窗的纯文本；没配 todoAppDir 就只回一句"读不到"，不报错。
-  const { scheduleSnapshot, todoSnapshot } = createSchedule({ cfg, log })
+  // -------------------------- 日程/待办（已拆成独立插件）---
+  // /日程、/待办 现在由可选的 @nyxfold/dsh-qq-schedule 接管：主包把认不出来的
+  // /命令 用 ctx.emit('qq/command') 广播出去（见 createInbound 的 emitCommand）。
 
   // ---------------------------------- 审批/提问（src/prompts.js）---
   const prompts = createPrompts({
@@ -249,17 +269,55 @@ export function apply(ctx, config) {
   })
 
   // -------------------------------------------- 入站分发（src/inbound.js）---
+  // 桥状态：qq_status 工具和 QQ 上的 /状态 共用同一份数据。
+  async function statusPayload() {
+    let napcat = '连不上'
+    try {
+      const info = await callApi('get_login_info', {})
+      napcat = info?.nickname ? `在线：${info.nickname}（${info.user_id}）` : '在线'
+    } catch (error) {
+      napcat = error instanceof Error ? error.message : String(error)
+    }
+    return {
+      ok: napcat.startsWith('在线'),
+      napcat,
+      sessionId: sessionId ?? '',
+      ownerUin,
+      allowed: [...allowed],
+      listening: Boolean(isListening()),
+      atDesk,
+      busyMode,
+    }
+  }
+
+  function statusText(value) {
+    const v = value || {}
+    return (
+      `NapCat：${v.napcat}\n` +
+      `绑定会话：${v.sessionId ? '…' + String(v.sessionId).slice(-8) : '（还没有）'}\n` +
+      `最近发消息的号：${v.ownerUin || '（还没有）'}\n` +
+      `白名单：${(v.allowed || []).join(', ') || '（空，谁都不能用）'}\n` +
+      `在电脑前：${v.atDesk ? '是' : '否（按手机处理）'}\n` +
+      `忙时投递：${v.busyMode === 'steer' ? '插队' : '排队'}\n` +
+      `本机监听：${v.listening ? '在' : '没起来'}`
+    )
+  }
+
   const inbound = createInbound({
     cfg,
     allowed,
     log,
     state: qqState,
     sendText,
+    saveState,
     parseAnswer,
     messageText,
     recordError,
     DEFAULTS,
     // 下面这些在别处创建（或由别的模块导出），用惰性包装避开构造期的 TDZ。
+    statusPayload: (...args) => statusPayload(...args),
+    statusText: (...args) => statusText(...args),
+    sessionRows: (...args) => sessionRows(...args),
     handleGroupEvent: (...args) => handleGroupEvent(...args),
     importStickers: (...args) => importStickers(...args),
     groupReplyCommandReply: (...args) => groupReplyCommandReply(...args),
@@ -272,8 +330,8 @@ export function apply(ctx, config) {
     transcribeVoice: (...args) => transcribeVoice(...args),
     expandForward: (...args) => expandForward(...args),
     activitySnapshot,
-    scheduleSnapshot,
-    todoSnapshot,
+    // 扩展命令总线：装了 @nyxfold/dsh-qq-schedule 之类的话，由它接管 /日程 /待办。
+    emitCommand: (payload) => ctx.emit?.('qq/command', payload),
     modelCommandReply: (...args) => modelCommandReply(...args),
     prompts,
     expectReply: () => replies.expectReply(),
@@ -283,6 +341,10 @@ export function apply(ctx, config) {
 
   // ------------------------------------------------------------- replies ---
   // ------------------------------------------- 回复回传（src/replies.js）---
+  // selfSent：这一轮 agent 是否已经用 qq_send_message / qq_send_file 自己发过。
+  // 发过就不再回传，否则用户会收到两遍（2026-11-25 用户报的重复问题）。
+  const selfSent = createSelfSent()
+
   const replies = createReplies({
     ctx,
     log,
@@ -290,6 +352,7 @@ export function apply(ctx, config) {
     getSessionId: () => sessionId,
     getOwnerUin: () => ownerUin,
     watchLocalContext,
+    selfSent,
   })
 
   // ------------------------------------------------ /qq 命令（src/command.js）---
@@ -339,6 +402,11 @@ export function apply(ctx, config) {
     saveState,
     recordError,
     DEFAULTS,
+    markSelfSent: () => selfSent.mark(),
+    // QQ 发起的回合：文字由桥回传，模型不该再用 qq_send_message 发一遍。
+    isQqTurn: () => replies.expecting(),
+    statusPayload,
+    statusText,
   })
 
 
@@ -380,6 +448,13 @@ export function apply(ctx, config) {
 
   ctx.effect(() => {
     startInbound()
+    // 恢复「人在不在电脑前」：重启后不该忘了他是坐在桌前还是在手机上。
+    loadState()
+      .then((saved) => {
+        if (typeof saved?.atDesk === 'boolean') atDesk = saved.atDesk
+        if (saved?.busyMode === 'steer' || saved?.busyMode === 'queue') busyMode = saved.busyMode
+      })
+      .catch(() => {})
     ensureSession()
       .then(() => ensureLilyTitle())
       .then(() => sweepOldSwitchboards())

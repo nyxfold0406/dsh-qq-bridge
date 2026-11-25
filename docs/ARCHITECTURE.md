@@ -38,7 +38,6 @@ QQ 手机  ⇄  NapCat(Win)  :3000
 | `src/session.js` | 接线、投递、列会话、开/回退总机、挂断 | `remoteHintSession`、`remoteHintAt`（「他在手机上」提示的节流） |
 | `src/group.js` | 群聊：限流、摘要、记忆、表情库、群里改模型 | `groupHistory`、`groupStamps`、`groupMemory`、`groupExchange`、`groupSettings`、`groupModelOverride` |
 | `src/activity.js` | 会话活动快照（谁在跑、后台任务、待办） | `report`（每会话一条，事件里写，被问时才读） |
-| `src/schedule.js` | `/日程` `/待办` 快照：读桌面待办小窗的纯文本 | 无（每次被问重读一遍，没有缓存） |
 | `src/prompts.js` | 审批 / 提问的转发与回填 | `pending.approval`、`pending.question` |
 | `src/replies.js` | 一轮文本攒好再发回 QQ | `replyByTurn` |
 | `src/model.js` | `/模型` 切换、本地模型窗口预警 | `contextWatch`、`localModelsCache` |
@@ -64,7 +63,7 @@ QQ 手机  ⇄  NapCat(Win)  :3000
 3. `handleEvent()` 判类型：
    - `meta_event`（心跳）→ 丢弃
    - 发送者不在 `allowUins` → 静默丢弃（不回话，不给对方任何信号）
-   - 控制词（`/任务`、`/日程`、`/待办`、`/多条开始`…`/结束`、`挂了`）→ 桥自己答，不唤醒会话
+   - 控制词（`/任务`、`挂了`）→ 桥自己答，不唤醒会话
    - 待审批 ≠ 空且文本能解析成允许/拒绝 → 回填 `pendingApproval`
    - 群消息且群在白名单 → 走 `handleGroupEvent`
    - 其余 → `promptSession()`：`ensureSession()` → `sessionController.prompt()`
